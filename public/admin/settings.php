@@ -17,7 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($_FILES['qr_image']['tmp_name'])) {
         $ext = strtolower(pathinfo($_FILES['qr_image']['name'], PATHINFO_EXTENSION));
         if (in_array($ext, ['png', 'jpg', 'jpeg'], true)) {
-            $dest = __DIR__ . '/../public/assets/img/payment-qr.' . $ext;
+            $destDir = __DIR__ . '/../assets/img';
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0775, true);
+            }
+            $dest = $destDir . '/payment-qr.' . $ext;
             move_uploaded_file($_FILES['qr_image']['tmp_name'], $dest);
             $pdo->prepare('UPDATE settings SET setting_value = ? WHERE setting_key = "qr_image_path"')
                 ->execute(['/assets/img/payment-qr.' . $ext]);
