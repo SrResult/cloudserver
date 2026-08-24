@@ -42,7 +42,7 @@ $settings = array_column($rows, 'setting_value', 'setting_key');
 <body>
 <header class="topbar">
     <div class="brand"><?= e(APP_BRAND_NAME) ?> Admin</div>
-    <nav><a href="/admin/orders">Orders</a> · <a href="/admin/pricing">Pricing</a> · <a href="/admin/settings">Settings</a> · <a href="/admin/logout">Log out</a></nav>
+    <nav><a href="/admin/orders">Orders</a> · <a href="/admin/renewals">Renewals</a> · <a href="/admin/pricing">Pricing</a> · <a href="/admin/settings">Settings</a> · <a href="/admin/logout">Log out</a></nav>
 </header>
 <main class="container">
 <h1>Branding & Payment Settings</h1>
