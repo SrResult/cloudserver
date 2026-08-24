@@ -56,9 +56,28 @@ CREATE TABLE orders (
     status TEXT NOT NULL DEFAULT 'awaiting_payment',
     approved_at TEXT DEFAULT NULL,
     approved_by INTEGER DEFAULT NULL,
+    expires_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(id),
+    FOREIGN KEY (approved_by) REFERENCES admin_users(id)
+);
+
+-- Renewal invoices — admin sets an amount + due date for a given order's next
+-- billing cycle; the client pays it the same UPI/UTR way as a fresh order.
+CREATE TABLE renewals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    months INTEGER NOT NULL DEFAULT 12,
+    due_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', -- pending, utr_submitted, approved, rejected
+    utr_number TEXT DEFAULT NULL,
+    utr_submitted_at TEXT DEFAULT NULL,
+    approved_at TEXT DEFAULT NULL,
+    approved_by INTEGER DEFAULT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (approved_by) REFERENCES admin_users(id)
 );
 
