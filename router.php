@@ -10,11 +10,14 @@ if ($uri !== '/' && file_exists($file) && !is_dir($file)) {
     return false;
 }
 
+// Homepage
+if ($uri === '/') {
+    require $publicRoot . '/index.php';
+    return true;
+}
+
 // Clean extensionless URLs: /login -> public/login.php, /admin/orders -> public/admin/orders.php
 $path = rtrim($uri, '/');
-if ($path === '') {
-    $path = '/dashboard';
-}
 $phpFile = $publicRoot . $path . '.php';
 if (file_exists($phpFile)) {
     require $phpFile;
@@ -24,11 +27,6 @@ if (file_exists($phpFile)) {
 // /admin -> /admin/orders
 if ($path === '/admin') {
     require $publicRoot . '/admin/orders.php';
-    return true;
-}
-
-if ($path === '/dashboard' || $uri === '/') {
-    require $publicRoot . '/index.php';
     return true;
 }
 
