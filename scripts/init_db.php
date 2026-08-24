@@ -9,12 +9,16 @@ $driver = getenv('DB_DRIVER') ?: 'sqlite';
 
 if ($driver === 'sqlite') {
     $path = __DIR__ . '/../storage/dev.sqlite';
-    $isNew = !file_exists($path);
     $pdo = new PDO('sqlite:' . $path);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec('PRAGMA foreign_keys = ON');
 
-    if ($isNew) {
+    // Don't trust file_exists() alone — a stale/empty dev.sqlite can end up baked
+    // into the Docker image (e.g. accidentally committed to the repo). Check for
+    // an actual table instead, so a hollow file still gets the schema applied.
+    $hasSchema = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_users'")->fetch();
+
+    if (!$hasSchema) {
         $pdo->exec(file_get_contents(__DIR__ . '/../sql/schema.sqlite.sql'));
         echo "SQLite database initialized.\n";
         exit(0);
@@ -79,11 +83,13 @@ if (!$pdo) {
 $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 $pdo->exec("USE `$name`");
 
-$tables = $pdo->query("SHOW TABLES LIKE 'orders'")->fetchAll();
+$allTables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+$hasOrders = in_array('orders', $allTables, true);
 
-if (!$tables) {
-    // Fresh database — run the full schema. Strip the hardcoded
-    // CREATE DATABASE/USE lines since we already created/selected the real one above.
+if (empty($allTables)) {
+    // Genuinely empty database — run the full schema in one go. Strip the
+    // hardcoded CREATE DATABASE/USE lines since we already created/selected
+    // the real one above.
     $sql = file_get_contents(__DIR__ . '/../sql/schema.sql');
     $sql = preg_replace('/^CREATE DATABASE.*$/mi', '', $sql);
     $sql = preg_replace('/^USE\s+\S+;\s*$/mi', '', $sql);
@@ -97,7 +103,34 @@ if (!$tables) {
     exit(0);
 }
 
-// Existing database — apply forward migrations only, never touch existing data.
+if (!$hasOrders) {
+    // Database has some leftover tables from an earlier partial setup, but
+    // not the full schema — replay the schema statements idempotently,
+    // skipping only the ones that fail because that object already exists.
+    $sql = file_get_contents(__DIR__ . '/../sql/schema.sql');
+    $sql = preg_replace('/^CREATE DATABASE.*$/mi', '', $sql);
+    $sql = preg_replace('/^USE\s+\S+;\s*$/mi', '', $sql);
+
+    foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
+        if ($statement === '') {
+            continue;
+        }
+        try {
+            $pdo->exec($statement);
+        } catch (PDOException $e) {
+            // 1050 table exists, 1060 duplicate column, 1061/1091 duplicate/unknown key,
+            // 1062 duplicate seed row — safe to skip, anything else is a real problem
+            // and should still fail loudly.
+            if (!preg_match('/(1050|1060|1061|1062|1091)/', $e->getMessage())) {
+                throw $e;
+            }
+        }
+    }
+    echo "MySQL schema reconciled on `$name` (some tables already existed).\n";
+    exit(0);
+}
+
+// Existing, already-initialized database — apply forward migrations only, never touch existing data.
 try {
     $pdo->exec('ALTER TABLE orders ADD COLUMN expires_at DATETIME DEFAULT NULL');
     echo "MySQL: added orders.expires_at.\n";
