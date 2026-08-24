@@ -17,9 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($order && $order['status'] === 'pending_utr_verification') {
         if ($action === 'approve') {
-            $pdo->prepare('UPDATE orders SET status = "approved", approved_at = ?, approved_by = ? WHERE id = ?')
-                ->execute([date('Y-m-d H:i:s'), current_admin_id(), $orderId]);
-            flash('notice', "Order #$orderId approved. API key will be issued in " . TOKEN_DELAY_MINUTES . " minutes (via cron or on the client's next dashboard visit).");
+            $now = date('Y-m-d H:i:s');
+            $expiresAt = date('Y-m-d H:i:s', strtotime('+' . (int) $order['tenure_months'] . ' months', strtotime($now)));
+            $pdo->prepare('UPDATE orders SET status = "approved", approved_at = ?, approved_by = ?, expires_at = ? WHERE id = ?')
+                ->execute([$now, current_admin_id(), $expiresAt, $orderId]);
+            flash('notice', "Order #$orderId approved (service valid until " . date('d M Y', strtotime($expiresAt)) . "). API key will be issued in " . TOKEN_DELAY_MINUTES . " minutes (via cron or on the client's next dashboard visit).");
         } elseif ($action === 'reject') {
             $pdo->prepare('UPDATE orders SET status = "rejected" WHERE id = ?')->execute([$orderId]);
             flash('notice', "Order #$orderId rejected.");
@@ -43,7 +45,7 @@ $orders = $pdo->query(
 <body>
 <header class="topbar">
     <div class="brand"><?= e(APP_BRAND_NAME) ?> Admin</div>
-    <nav><a href="/admin/orders">Orders</a> · <a href="/admin/pricing">Pricing</a> · <a href="/admin/settings">Settings</a> · <a href="/admin/logout">Log out</a></nav>
+    <nav><a href="/admin/orders">Orders</a> · <a href="/admin/renewals">Renewals</a> · <a href="/admin/pricing">Pricing</a> · <a href="/admin/settings">Settings</a> · <a href="/admin/logout">Log out</a></nav>
 </header>
 <main class="container">
 <h1>Orders</h1>
@@ -70,6 +72,7 @@ $orders = $pdo->query(
         </form>
         <?php elseif ($o['status'] === 'approved'): ?>
             <a href="/admin/credentials?order_id=<?= (int) $o['id'] ?>">Set credentials</a>
+            · <a href="/admin/renewals">Renewal</a>
         <?php endif; ?>
     </td>
 </tr>
