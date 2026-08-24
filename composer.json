@@ -1,0 +1,8 @@
+{
+    "name": "yourbrand/hosting-panel",
+    "description": "White-label hosting/domain/SSL billing panel",
+    "require": {
+        "php": ">=8.1",
+        "phpmailer/phpmailer": "^6.9"
+    }
+}
