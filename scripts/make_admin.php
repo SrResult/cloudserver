@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 // Run from the command line:
-//   php scripts/make_admin.php "Admin Name" admin@example.com "a-strong-password"
+//   php scripts/make_admin.php "ankit" admin@example.com "ankit@ankit"
 
 require_once __DIR__ . '/../config/db.php';
 
