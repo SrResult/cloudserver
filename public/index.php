@@ -17,12 +17,16 @@ if (current_user_id()) {
 <body>
 <header class="topbar">
     <div class="brand"><?= e(APP_BRAND_NAME) ?></div>
-    <nav><a href="/login">Log in</a> · <a href="/register">Sign up</a></nav>
+    <nav><a href="/login">Log in</a> · <a href="/register">Sign up</a> · <a href="/admin/login">Admin login</a></nav>
 </header>
 <main class="container">
     <h1>Hosting, Domains, SSL & VPS — under one dashboard</h1>
     <p>Create an account to order services, pay via UPI, and get instant access once verified.</p>
-    <a class="btn btn-primary" href="/register">Get started</a>
+    <div class="cta-row">
+        <a class="btn btn-primary" href="/register">Sign up (new client)</a>
+        <a class="btn btn-secondary" href="/login">Log in</a>
+    </div>
+    <p class="muted" style="margin-top:24px">Are you the site admin? <a href="/admin/login">Log in to the admin panel</a>.</p>
 </main>
 </body>
 </html>
