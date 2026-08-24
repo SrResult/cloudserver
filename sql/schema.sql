@@ -78,9 +78,30 @@ CREATE TABLE orders (
     ) NOT NULL DEFAULT 'awaiting_payment',
     approved_at DATETIME DEFAULT NULL,
     approved_by INT DEFAULT NULL, -- admin_users.id
+    expires_at DATETIME DEFAULT NULL, -- when the current paid period ends; set on approval, extended on renewal approval
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(id),
+    FOREIGN KEY (approved_by) REFERENCES admin_users(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------
+-- Renewal invoices — admin sets an amount + due date for a given order's
+-- next billing cycle; the client pays it the same UPI/UTR way as a fresh order.
+-- ---------------------------------------------------------------
+CREATE TABLE renewals (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    months TINYINT NOT NULL DEFAULT 12,
+    due_date DATE NOT NULL,
+    status ENUM('pending','utr_submitted','approved','rejected') NOT NULL DEFAULT 'pending',
+    utr_number VARCHAR(50) DEFAULT NULL,
+    utr_submitted_at DATETIME DEFAULT NULL,
+    approved_at DATETIME DEFAULT NULL,
+    approved_by INT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY (approved_by) REFERENCES admin_users(id)
 ) ENGINE=InnoDB;
 
