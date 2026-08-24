@@ -1,232 +1,198 @@
 <?php
 declare(strict_types=1);
-require_once __DIR__ . '/../../includes/functions.php';
-require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../config/db.php';
 
-require_admin();
+require_login();
 $pdo = get_pdo();
-$errors = [];
+$userId = current_user_id();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    require_csrf();
-    $action = $_POST['action'] ?? '';
+$stmt = $pdo->prepare('SELECT name FROM users WHERE id = ?');
+$stmt->execute([$userId]);
+$user = $stmt->fetch();
 
-    if ($action === 'create_renewal') {
-        $orderId = (int) ($_POST['order_id'] ?? 0);
-        $amount = (float) ($_POST['amount'] ?? 0);
-        $months = (int) ($_POST['months'] ?? 12);
-        $dueDate = trim($_POST['due_date'] ?? '');
+$products = $pdo->query('SELECT * FROM products WHERE is_active = 1 ORDER BY category, name')->fetchAll();
 
-        if ($amount <= 0) {
-            $errors[] = 'Enter a valid renewal amount.';
-        } elseif (!in_array($months, [1, 3, 6, 12, 24, 36], true)) {
-            $errors[] = 'Enter a valid number of months.';
-        } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
-            $errors[] = 'Enter a valid due date.';
-        } else {
-            $orderStmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'approved'");
-            $orderStmt->execute([$orderId]);
-            $order = $orderStmt->fetch();
+$ordersStmt = $pdo->prepare(
+    'SELECT o.*, p.name AS product_name
+     FROM orders o JOIN products p ON p.id = o.product_id
+     WHERE o.user_id = ? ORDER BY o.created_at DESC'
+);
+$ordersStmt->execute([$userId]);
+$orders = $ordersStmt->fetchAll();
 
-            if (!$order) {
-                $errors[] = 'Order not found or not yet approved.';
-            } else {
-                $activeStmt = $pdo->prepare(
-                    "SELECT COUNT(*) FROM renewals WHERE order_id = ? AND status IN ('pending','utr_submitted')"
-                );
-                $activeStmt->execute([$orderId]);
-                if ((int) $activeStmt->fetchColumn() > 0) {
-                    $errors[] = 'This order already has an active renewal invoice.';
-                } else {
-                    $pdo->prepare(
-                        'INSERT INTO renewals (order_id, amount, months, due_date, status) VALUES (?, ?, ?, ?, "pending")'
-                    )->execute([$orderId, $amount, $months, $dueDate]);
-                    flash('notice', 'Renewal invoice created — the client will see it on their dashboard.');
+// UX fallback: if any approved order has crossed the delay and has no token yet,
+// generate it right now too (the cron in cron/generate_tokens.php is the source of truth;
+// this just avoids a client staring at "processing" until the next cron tick).
+foreach ($orders as $order) {
+    if ($order['status'] === 'approved') {
+        $tokenCheck = $pdo->prepare('SELECT id FROM api_tokens WHERE order_id = ?');
+        $tokenCheck->execute([$order['id']]);
+        if (!$tokenCheck->fetch()) {
+            $dueAt = strtotime($order['approved_at']) + TOKEN_DELAY_MINUTES * 60;
+            if (time() >= $dueAt) {
+                require_once __DIR__ . '/../includes/token_issuer.php';
+                $rawToken = issue_api_token_for_order($pdo, (int) $order['id'], (int) $order['user_id']);
+                if ($rawToken !== null) {
+                    $_SESSION['newly_issued_token'] = $rawToken;
                 }
             }
         }
-    } elseif ($action === 'cancel_renewal') {
-        $renewalId = (int) ($_POST['renewal_id'] ?? 0);
-        $pdo->prepare("DELETE FROM renewals WHERE id = ? AND status = 'pending'")->execute([$renewalId]);
-        flash('notice', 'Renewal invoice cancelled.');
-    } elseif ($action === 'approve_renewal' || $action === 'reject_renewal') {
-        $renewalId = (int) ($_POST['renewal_id'] ?? 0);
-        $rStmt = $pdo->prepare("SELECT * FROM renewals WHERE id = ? AND status = 'utr_submitted'");
-        $rStmt->execute([$renewalId]);
-        $renewal = $rStmt->fetch();
-
-        if ($renewal) {
-            if ($action === 'approve_renewal') {
-                $now = date('Y-m-d H:i:s');
-                $pdo->prepare(
-                    'UPDATE renewals SET status = "approved", approved_at = ?, approved_by = ? WHERE id = ?'
-                )->execute([$now, current_admin_id(), $renewalId]);
-
-                // Extend the order's service period from whichever is later: its current
-                // expiry, or today (covers an already-lapsed order being renewed late).
-                $orderStmt = $pdo->prepare('SELECT expires_at FROM orders WHERE id = ?');
-                $orderStmt->execute([$renewal['order_id']]);
-                $currentExpiry = $orderStmt->fetchColumn();
-                $base = ($currentExpiry && strtotime($currentExpiry) > time()) ? strtotime($currentExpiry) : time();
-                $newExpiry = date('Y-m-d H:i:s', strtotime('+' . (int) $renewal['months'] . ' months', $base));
-
-                $pdo->prepare('UPDATE orders SET expires_at = ? WHERE id = ?')
-                    ->execute([$newExpiry, $renewal['order_id']]);
-
-                flash('notice', "Renewal #$renewalId approved — service extended to " . date('d M Y', strtotime($newExpiry)) . '.');
-            } else {
-                $pdo->prepare('UPDATE renewals SET status = "rejected" WHERE id = ?')->execute([$renewalId]);
-                flash('notice', "Renewal #$renewalId rejected.");
-            }
-        }
     }
-
-    header('Location: ' . APP_URL . '/admin/renewals');
-    exit;
 }
 
-// Approved orders with client/product info + their latest renewal (if any)
-$orders = $pdo->query(
-    "SELECT o.*, p.name AS product_name, u.name AS client_name, u.email AS client_email
-     FROM orders o
-     JOIN products p ON p.id = o.product_id
-     JOIN users u ON u.id = o.user_id
-     WHERE o.status = 'approved'
-     ORDER BY o.expires_at IS NULL, o.expires_at ASC"
-)->fetchAll();
+$tokensStmt = $pdo->prepare('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC');
+$tokensStmt->execute([$userId]);
+$tokens = $tokensStmt->fetchAll();
 
-$renewalsByOrder = [];
-$allRenewals = $pdo->query(
-    "SELECT r.*, o.user_id, p.name AS product_name, u.name AS client_name, u.email AS client_email
+$devEmailsStmt = $pdo->prepare('SELECT * FROM developer_emails WHERE user_id = ? ORDER BY created_at DESC');
+$devEmailsStmt->execute([$userId]);
+$devEmails = $devEmailsStmt->fetchAll();
+
+$renewalsStmt = $pdo->prepare(
+    "SELECT r.*, o.tenure_months, p.name AS product_name
      FROM renewals r
      JOIN orders o ON o.id = r.order_id
      JOIN products p ON p.id = o.product_id
-     JOIN users u ON u.id = o.user_id
-     ORDER BY r.created_at DESC"
-)->fetchAll();
-foreach ($allRenewals as $r) {
-    $renewalsByOrder[$r['order_id']][] = $r;
-}
-
-$pendingApproval = array_filter($allRenewals, fn($r) => $r['status'] === 'utr_submitted');
+     WHERE o.user_id = ? AND r.status != 'rejected'
+     ORDER BY r.due_date ASC"
+);
+$renewalsStmt->execute([$userId]);
+$renewals = $renewalsStmt->fetchAll();
 ?>
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Renewals — Admin</title><link rel="stylesheet" href="/assets/css/theme.css"></head>
+<head>
+<meta charset="utf-8">
+<title>Dashboard — <?= e(APP_BRAND_NAME) ?></title>
+<link rel="stylesheet" href="/assets/css/theme.css">
+</head>
 <body>
 <header class="topbar">
-    <div class="brand"><?= e(APP_BRAND_NAME) ?> Admin</div>
-    <nav><a href="/admin/orders">Orders</a> · <a href="/admin/renewals">Renewals</a> · <a href="/admin/pricing">Pricing</a> · <a href="/admin/settings">Settings</a> · <a href="/admin/logout">Log out</a></nav>
+    <div class="brand"><?= e(APP_BRAND_NAME) ?></div>
+    <nav><span>Hi, <?= e($user['name']) ?></span> · <a href="/logout">Log out</a></nav>
 </header>
+
 <main class="container">
-<h1>Renewals</h1>
-<p class="muted">Set how much a client should pay to renew a service, and approve their payment once submitted.</p>
+    <?php if (!empty($_SESSION['newly_issued_token'])): ?>
+        <div class="alert alert-success">
+            Your new API key (shown once — copy it now): <code><?= e($_SESSION['newly_issued_token']) ?></code>
+        </div>
+        <?php unset($_SESSION['newly_issued_token']); ?>
+    <?php endif; ?>
+    <?php if ($n = flash('notice')): ?><div class="alert alert-success"><?= e($n) ?></div><?php endif; ?>
+    <section>
+        <h2>Order a service</h2>
+        <div class="product-grid">
+            <?php foreach ($products as $p): ?>
+                <div class="product-card">
+                    <h3><?= e($p['name']) ?></h3>
+                    <p class="muted"><?= e($p['category']) ?></p>
+                    <p><?= e($p['description']) ?></p>
+                    <a class="btn btn-primary" href="/checkout?product_id=<?= (int) $p['id'] ?>">
+                        Order from ₹<?= number_format((float) $p['base_price_12mo'], 2) ?>/yr
+                    </a>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </section>
 
-<?php if ($n = flash('notice')): ?><div class="alert alert-success"><?= e($n) ?></div><?php endif; ?>
-<?php foreach ($errors as $err): ?><div class="alert alert-error"><?= e($err) ?></div><?php endforeach; ?>
+    <section>
+        <h2>Your orders</h2>
+        <table class="data-table">
+            <thead><tr><th>Product</th><th>Tenure</th><th>Amount</th><th>Status</th><th>Service expires</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php foreach ($orders as $o): ?>
+                <tr>
+                    <td><?= e($o['product_name']) ?></td>
+                    <td><?= (int) $o['tenure_months'] ?> mo</td>
+                    <td>₹<?= number_format((float) $o['final_amount'], 2) ?></td>
+                    <td><span class="badge badge-<?= e($o['status']) ?>"><?= e(str_replace('_', ' ', $o['status'])) ?></span></td>
+                    <td>
+                        <?php if (!empty($o['expires_at'])): ?>
+                            <?= e(date('d M Y', strtotime($o['expires_at']))) ?>
+                            <?php if (strtotime($o['expires_at']) < time()): ?><span class="badge badge-rejected">expired</span><?php endif; ?>
+                        <?php else: ?>
+                            <span class="muted">-</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($o['status'] === 'awaiting_payment'): ?>
+                            <a href="/checkout?order_id=<?= (int) $o['id'] ?>">Pay now</a>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (!$orders): ?><tr><td colspan="6">No orders yet.</td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </section>
 
-<?php if ($pendingApproval): ?>
-<section>
-    <h2>Awaiting your approval (<?= count($pendingApproval) ?>)</h2>
-    <table class="data-table">
-    <thead><tr><th>Client</th><th>Service</th><th>Amount</th><th>UTR</th><th>Submitted</th><th>Action</th></tr></thead>
-    <tbody>
-    <?php foreach ($pendingApproval as $r): ?>
-        <tr>
-            <td><?= e($r['client_name']) ?><br><small><?= e($r['client_email']) ?></small></td>
-            <td><?= e($r['product_name']) ?></td>
-            <td>₹<?= number_format((float) $r['amount'], 2) ?></td>
-            <td><?= e($r['utr_number'] ?? '-') ?></td>
-            <td><?= e($r['utr_submitted_at'] ?? '-') ?></td>
-            <td>
-                <form method="post" style="display:inline">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="renewal_id" value="<?= (int) $r['id'] ?>">
-                    <button type="submit" name="action" value="approve_renewal" class="btn btn-primary btn-sm">Approve</button>
-                    <button type="submit" name="action" value="reject_renewal" class="btn btn-danger btn-sm">Reject</button>
-                </form>
-            </td>
-        </tr>
-    <?php endforeach; ?>
-    </tbody>
-    </table>
-</section>
-<?php endif; ?>
+    <?php if ($renewals): ?>
+    <section>
+        <h2>Renewals</h2>
+        <p class="muted">Payment due, upcoming due date, and renewal status for each of your services.</p>
+        <table class="data-table">
+            <thead><tr><th>Service</th><th>Amount</th><th>Due date</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php foreach ($renewals as $r): ?>
+                <?php $overdue = strtotime($r['due_date']) < time() && $r['status'] === 'pending'; ?>
+                <tr>
+                    <td><?= e($r['product_name']) ?></td>
+                    <td>₹<?= number_format((float) $r['amount'], 2) ?></td>
+                    <td>
+                        <?= e(date('d M Y', strtotime($r['due_date']))) ?>
+                        <?php if ($overdue): ?><span class="badge badge-rejected">overdue</span><?php endif; ?>
+                    </td>
+                    <td><span class="badge badge-<?= $r['status'] === 'utr_submitted' ? 'pending_utr_verification' : ($r['status'] === 'approved' ? 'approved' : 'awaiting_payment') ?>"><?= e(str_replace('_', ' ', $r['status'])) ?></span></td>
+                    <td>
+                        <?php if ($r['status'] === 'pending'): ?>
+                            <a class="btn btn-primary btn-sm" href="/renew?renewal_id=<?= (int) $r['id'] ?>">Pay renewal</a>
+                        <?php elseif ($r['status'] === 'approved'): ?>
+                            <span class="muted">Paid</span>
+                        <?php else: ?>
+                            <span class="muted">Verifying payment</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </section>
+    <?php endif; ?>
 
-<section>
-    <h2>Active services</h2>
-    <table class="data-table">
-    <thead><tr><th>Client</th><th>Service</th><th>Service expires</th><th>Renewal status</th><th>Action</th></tr></thead>
-    <tbody>
-    <?php foreach ($orders as $o): ?>
-        <?php
-            $latest = $renewalsByOrder[$o['id']][0] ?? null;
-            $hasActive = $latest && in_array($latest['status'], ['pending', 'utr_submitted'], true);
-            $expiresAt = $o['expires_at'] ?? null;
-            $isOverdue = $expiresAt && strtotime($expiresAt) < time();
-        ?>
-        <tr>
-            <td><?= e($o['client_name']) ?><br><small><?= e($o['client_email']) ?></small></td>
-            <td><?= e($o['product_name']) ?></td>
-            <td>
-                <?php if ($expiresAt): ?>
-                    <?= e(date('d M Y', strtotime($expiresAt))) ?>
-                    <?php if ($isOverdue): ?><span class="badge badge-rejected">overdue</span><?php endif; ?>
-                <?php else: ?>
-                    <span class="muted">not set</span>
-                <?php endif; ?>
-            </td>
-            <td>
-                <?php if ($latest): ?>
-                    <span class="badge badge-<?= $latest['status'] === 'utr_submitted' ? 'pending_utr_verification' : ($latest['status'] === 'approved' ? 'approved' : ($latest['status'] === 'rejected' ? 'rejected' : 'awaiting_payment')) ?>">
-                        <?= e(str_replace('_', ' ', $latest['status'])) ?>
-                    </span>
-                    · ₹<?= number_format((float) $latest['amount'], 2) ?>
-                <?php else: ?>
-                    <span class="muted">none</span>
-                <?php endif; ?>
-            </td>
-            <td>
-                <?php if ($hasActive): ?>
-                    <?php if ($latest['status'] === 'pending'): ?>
-                    <form method="post" style="display:inline" onsubmit="return confirm('Cancel this renewal invoice?');">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="renewal_id" value="<?= (int) $latest['id'] ?>">
-                        <button type="submit" name="action" value="cancel_renewal" class="btn btn-secondary btn-sm">Cancel invoice</button>
-                    </form>
-                    <?php else: ?>
-                        <span class="muted">awaiting client payment</span>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <details>
-                        <summary class="btn btn-secondary btn-sm" style="display:inline-block;cursor:pointer">Set renewal charge</summary>
-                        <form method="post" style="margin-top:10px">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="action" value="create_renewal">
-                            <input type="hidden" name="order_id" value="<?= (int) $o['id'] ?>">
-                            <label>Amount (₹) <input type="number" step="0.01" min="1" name="amount" required></label>
-                            <label>Duration
-                                <select name="months">
-                                    <option value="1">1 month</option>
-                                    <option value="3">3 months</option>
-                                    <option value="6">6 months</option>
-                                    <option value="12" selected>12 months</option>
-                                    <option value="24">24 months</option>
-                                    <option value="36">36 months</option>
-                                </select>
-                            </label>
-                            <label>Due date <input type="date" name="due_date" value="<?= e($expiresAt ? date('Y-m-d', strtotime($expiresAt)) : date('Y-m-d')) ?>" required></label>
-                            <button type="submit" class="btn btn-primary btn-sm">Create invoice</button>
-                        </form>
-                    </details>
-                <?php endif; ?>
-            </td>
-        </tr>
-    <?php endforeach; ?>
-    <?php if (!$orders): ?><tr><td colspan="5">No approved orders yet.</td></tr><?php endif; ?>
-    </tbody>
-    </table>
-</section>
+    <section>
+        <h2>API Keys</h2>
+        <table class="data-table">
+            <thead><tr><th>Key (prefix)</th><th>Status</th><th>Generated</th></tr></thead>
+            <tbody>
+            <?php foreach ($tokens as $t): ?>
+                <tr>
+                    <td><code><?= e($t['token_prefix']) ?>...</code></td>
+                    <td><?= $t['is_active'] ? 'Active' : 'Revoked' ?></td>
+                    <td><?= e($t['generated_at']) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (!$tokens): ?><tr><td colspan="3">No API keys yet — approved orders get one automatically 5 minutes after payment verification.</td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Whitelisted developer emails</h2>
+        <p class="muted">Only these emails can request your hosting credentials via an API key + OTP.</p>
+        <form method="post" action="/developer-emails">
+            <?= csrf_field() ?>
+            <input type="email" name="email" placeholder="developer@example.com" required>
+            <input type="text" name="label" placeholder="Label (optional)">
+            <button type="submit" class="btn btn-secondary">Add</button>
+        </form>
+        <ul>
+            <?php foreach ($devEmails as $d): ?>
+                <li><?= e($d['email']) ?> <?= $d['label'] ? '— ' . e($d['label']) : '' ?></li>
+            <?php endforeach; ?>
+        </ul>
+    </section>
 </main>
 </body>
 </html>
