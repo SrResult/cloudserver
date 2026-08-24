@@ -1,1 +1,138 @@
+/* Landing page — Hostinger-style pricing UI */
+.landing-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 40px; background: #0d0a1f; position: sticky; top: 0; z-index: 50;
+}
+.landing-nav .brand { font-weight: 800; font-size: 1.15rem; color: #fff; letter-spacing: -0.3px; }
+.landing-nav nav a {
+    color: #d6d2ee; text-decoration: none; margin-left: 22px; font-size: 0.92rem; font-weight: 500;
+    transition: color 0.2s ease;
+}
+.landing-nav nav a:hover { color: #fff; }
+.landing-nav nav a.nav-cta {
+    background: #6c5ce7; color: #fff; padding: 9px 18px; border-radius: 8px;
+}
+.landing-nav nav a.nav-cta:hover { background: #5b4bd6; }
 
+.hero {
+    position: relative;
+    background: radial-gradient(circle at 20% -10%, #2a1f5e 0%, #14102b 45%, #0d0a1f 100%);
+    padding: 64px 24px 56px;
+    text-align: center;
+    overflow: hidden;
+    color: #fff;
+}
+.hero::before, .hero::after {
+    content: ""; position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.35;
+    animation: floatBlob 14s ease-in-out infinite;
+}
+.hero::before { width: 320px; height: 320px; background: #6c5ce7; top: -80px; left: 8%; }
+.hero::after { width: 260px; height: 260px; background: #00d2c6; top: 40px; right: 10%; animation-delay: -6s; }
+@keyframes floatBlob {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(20px, 30px) scale(1.08); }
+}
+.hero-inner { position: relative; z-index: 2; max-width: 760px; margin: 0 auto; }
+.hero h1 {
+    font-size: 2.6rem; margin: 0 0 14px; font-weight: 800; letter-spacing: -1px;
+    animation: fadeUp 0.7s ease both;
+}
+.hero-badges {
+    display: flex; justify-content: center; gap: 22px; flex-wrap: wrap; margin: 0 0 28px;
+    color: #b9b3e0; font-size: 0.88rem; animation: fadeUp 0.7s ease 0.1s both;
+}
+.hero-badges span { display: inline-flex; align-items: center; gap: 6px; }
+
+.tabs { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; animation: fadeUp 0.7s ease 0.2s both; }
+.tab-btn {
+    background: rgba(255,255,255,0.08); color: #e4e1f7; border: 1px solid rgba(255,255,255,0.12);
+    padding: 10px 18px; border-radius: 999px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    transition: all 0.2s ease;
+}
+.tab-btn:hover { background: rgba(255,255,255,0.16); transform: translateY(-1px); }
+.tab-btn.active { background: #fff; color: #14102b; border-color: #fff; }
+
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.plans-section { background: #f4f2fb; padding: 48px 24px 64px; }
+.plans-inner { max-width: 1140px; margin: 0 auto; }
+.plans-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 26px; }
+.plans-head h2 { font-size: 1.8rem; margin: 0; letter-spacing: -0.5px; }
+
+.tenure-select {
+    padding: 10px 14px; border-radius: 8px; border: 1px solid #ddd7f2; background: #fff;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer;
+}
+
+.plan-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px;
+}
+.plan-card {
+    background: #fff; border: 1px solid #e7e3f7; border-radius: 14px; padding: 22px;
+    position: relative; opacity: 0; transform: translateY(18px);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.plan-card.in-view { animation: cardIn 0.5s ease forwards; }
+.plan-card:nth-child(1) { animation-delay: 0.02s; }
+.plan-card:nth-child(2) { animation-delay: 0.08s; }
+.plan-card:nth-child(3) { animation-delay: 0.14s; }
+.plan-card:nth-child(4) { animation-delay: 0.2s; }
+@keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+.plan-card:hover { transform: translateY(-4px); box-shadow: 0 14px 30px rgba(60, 40, 130, 0.12); }
+.plan-card.featured {
+    background: linear-gradient(160deg, #241a52, #14102b); color: #fff; border: none;
+}
+.plan-card.featured .plan-desc, .plan-card.featured .plan-strike { color: #b9b3e0; }
+
+.plan-badge {
+    position: absolute; top: 16px; right: 16px; background: #e9ffe1; color: #1c7d3f;
+    font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+}
+.plan-card.featured .plan-badge { background: #6c5ce7; color: #fff; }
+
+.plan-card h3 { margin: 0 0 6px; font-size: 1.15rem; }
+.plan-desc { color: #6b6480; font-size: 0.86rem; min-height: 38px; margin: 0 0 16px; }
+.plan-strike { text-decoration: line-through; color: #a39cc4; font-size: 0.85rem; }
+.plan-price { font-size: 1.9rem; font-weight: 800; margin: 2px 0 18px; }
+.plan-price span { font-size: 0.95rem; font-weight: 500; opacity: 0.7; }
+
+.plan-cta {
+    display: block; text-align: center; padding: 11px; border-radius: 8px; font-weight: 700;
+    text-decoration: none; font-size: 0.92rem; border: 1.5px solid #6c5ce7; color: #6c5ce7;
+    transition: all 0.2s ease;
+}
+.plan-cta:hover { background: #6c5ce7; color: #fff; }
+.plan-card.featured .plan-cta { background: #6c5ce7; color: #fff; border-color: #6c5ce7; }
+.plan-card.featured .plan-cta:hover { background: #5b4bd6; }
+
+.plan-fine { margin: 12px 0 0; font-size: 0.76rem; color: #9992b8; }
+.plan-card.featured .plan-fine { color: #a39cc4; }
+
+.empty-plans { text-align: center; color: #7a7392; padding: 40px 0; }
+
+.features-section { padding: 60px 24px; background: #fff; }
+.features-inner { max-width: 1000px; margin: 0 auto; text-align: center; }
+.features-inner h2 { font-size: 1.7rem; margin-bottom: 36px; letter-spacing: -0.5px; }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 26px; }
+.feature-item {
+    padding: 20px; opacity: 0; transform: translateY(14px);
+}
+.feature-item.in-view { animation: cardIn 0.5s ease forwards; }
+.feature-icon { font-size: 1.8rem; margin-bottom: 10px; }
+.feature-item h3 { margin: 0 0 6px; font-size: 1rem; }
+.feature-item p { margin: 0; color: #6b6480; font-size: 0.85rem; }
+
+.landing-footer {
+    background: #0d0a1f; color: #a39cc4; text-align: center; padding: 26px; font-size: 0.85rem;
+}
+.landing-footer a { color: #d6d2ee; text-decoration: none; margin: 0 8px; }
+.landing-footer a:hover { color: #fff; }
+
+@media (max-width: 640px) {
+    .hero h1 { font-size: 1.9rem; }
+    .landing-nav { padding: 14px 18px; }
+    .landing-nav nav a { margin-left: 12px; font-size: 0.82rem; }
+}
