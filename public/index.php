@@ -44,6 +44,21 @@ $firstCategory = $activeCategories[0] ?? null;
 <header class="landing-nav">
     <div class="brand"><?= e(APP_BRAND_NAME) ?></div>
     <nav>
+        <span class="mega-wrap">
+            <button type="button" class="mega-trigger" id="megaTrigger">Products <span class="caret">▾</span></button>
+            <div class="mega-panel" id="megaPanel">
+                <?php foreach ($categoryMeta as $cat => $meta): ?>
+                    <a class="mega-item" href="#plans" data-cat="<?= e($cat) ?>">
+                        <span class="mega-icon"><?= e($meta['icon']) ?></span>
+                        <span>
+                            <h4><?= e($meta['label']) ?></h4>
+                            <p><?= e(!empty($byCategory[$cat]) ? (count($byCategory[$cat]) . ' plan(s) available') : 'Coming soon') ?></p>
+                        </span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </span>
+        <a href="#plans">Pricing</a>
         <a href="/login">Log in</a>
         <a href="/admin/login">Admin login</a>
         <a href="/register" class="nav-cta">Sign up</a>
@@ -70,7 +85,7 @@ $firstCategory = $activeCategories[0] ?? null;
     </div>
 </section>
 
-<section class="plans-section">
+<section class="plans-section" id="plans">
     <div class="plans-inner">
         <div class="plans-head">
             <h2 id="plansHeading"><?= $firstCategory ? e($categoryMeta[$firstCategory]['label'] ?? ucfirst($firstCategory)) : 'Plans' ?></h2>
@@ -92,7 +107,18 @@ $firstCategory = $activeCategories[0] ?? null;
                              data-id="<?= (int) $p['id'] ?>">
                             <?php if ($i === 1): ?><span class="plan-badge">Popular</span><?php endif; ?>
                             <h3><?= e($p['name']) ?></h3>
-                            <p class="plan-desc"><?= e($p['description'] ?? '') ?></p>
+                            <?php
+                                $descParts = array_filter(array_map('trim', preg_split('/[,\n]+/', (string) ($p['description'] ?? ''))));
+                            ?>
+                            <?php if ($descParts): ?>
+                                <ul class="plan-features">
+                                    <?php foreach ($descParts as $part): ?>
+                                        <li><?= e($part) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php else: ?>
+                                <p class="plan-desc">Full details available after login.</p>
+                            <?php endif; ?>
                             <div class="plan-strike price-strike"></div>
                             <div class="plan-price"><span class="price-currency">₹</span><span class="price-amount"></span><span> /mo</span></div>
                             <a class="plan-cta" href="/checkout?product_id=<?= (int) $p['id'] ?>">Choose plan</a>
@@ -129,6 +155,31 @@ $firstCategory = $activeCategories[0] ?? null;
     var tabs = document.querySelectorAll('.tab-btn');
     var panels = document.querySelectorAll('.category-panel');
     var heading = document.getElementById('plansHeading');
+    var megaTrigger = document.getElementById('megaTrigger');
+    var megaPanel = document.getElementById('megaPanel');
+
+    if (megaTrigger && megaPanel) {
+        megaTrigger.addEventListener('click', function (e) {
+            e.stopPropagation();
+            megaTrigger.classList.toggle('open');
+            megaPanel.classList.toggle('open');
+        });
+        document.addEventListener('click', function (e) {
+            if (!megaPanel.contains(e.target) && e.target !== megaTrigger) {
+                megaTrigger.classList.remove('open');
+                megaPanel.classList.remove('open');
+            }
+        });
+        megaPanel.querySelectorAll('.mega-item').forEach(function (item) {
+            item.addEventListener('click', function () {
+                var cat = item.getAttribute('data-cat');
+                var tabBtn = document.querySelector('.tab-btn[data-cat="' + cat + '"]');
+                if (tabBtn) { tabBtn.click(); }
+                megaTrigger.classList.remove('open');
+                megaPanel.classList.remove('open');
+            });
+        });
+    }
 
     function renderPrices() {
         var tenure = parseInt(tenureSelect.value, 10);
