@@ -14,6 +14,37 @@
 }
 .landing-nav nav a.nav-cta:hover { background: #5b4bd6; }
 
+/* Products mega-menu */
+.mega-wrap { position: relative; display: inline-block; }
+.mega-trigger {
+    background: none; border: none; color: #d6d2ee; font-size: 0.92rem; font-weight: 500;
+    font-family: inherit; cursor: pointer; padding: 0; margin-left: 22px; display: inline-flex; align-items: center; gap: 4px;
+}
+.mega-trigger:hover, .mega-trigger.open { color: #fff; }
+.mega-trigger .caret { font-size: 0.65rem; transition: transform 0.2s ease; }
+.mega-trigger.open .caret { transform: rotate(180deg); }
+
+.mega-panel {
+    position: absolute; top: calc(100% + 18px); left: 50%; transform: translateX(-50%) translateY(-8px);
+    width: 520px; background: #fff; border-radius: 16px; padding: 22px;
+    box-shadow: 0 24px 60px rgba(20, 10, 60, 0.25);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    opacity: 0; visibility: hidden; transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    z-index: 60;
+}
+.mega-panel.open { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.mega-item {
+    display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 10px;
+    text-decoration: none; color: inherit; transition: background 0.15s ease, transform 0.15s ease;
+}
+.mega-item:hover { background: #f4f2fb; transform: translateX(2px); }
+.mega-item .mega-icon {
+    width: 38px; height: 38px; border-radius: 10px; background: #f0edfc; display: flex; align-items: center;
+    justify-content: center; font-size: 1.15rem; flex-shrink: 0;
+}
+.mega-item h4 { margin: 0 0 3px; font-size: 0.92rem; color: #241a52; }
+.mega-item p { margin: 0; font-size: 0.78rem; color: #8880a3; line-height: 1.35; }
+
 .hero {
     position: relative;
     background: radial-gradient(circle at 20% -10%, #2a1f5e 0%, #14102b 45%, #0d0a1f 100%);
@@ -95,6 +126,11 @@
 
 .plan-card h3 { margin: 0 0 6px; font-size: 1.15rem; }
 .plan-desc { color: #6b6480; font-size: 0.86rem; min-height: 38px; margin: 0 0 16px; }
+.plan-features { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.plan-features li { font-size: 0.83rem; color: #4c4664; display: flex; align-items: flex-start; gap: 7px; }
+.plan-features li::before { content: "✓"; color: #6c5ce7; font-weight: 800; flex-shrink: 0; }
+.plan-card.featured .plan-features li { color: #d6d2ee; }
+.plan-card.featured .plan-features li::before { color: #9d8dff; }
 .plan-strike { text-decoration: line-through; color: #a39cc4; font-size: 0.85rem; }
 .plan-price { font-size: 1.9rem; font-weight: 800; margin: 2px 0 18px; }
 .plan-price span { font-size: 0.95rem; font-weight: 500; opacity: 0.7; }
