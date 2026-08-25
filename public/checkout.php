@@ -40,19 +40,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
     if (isset($_POST['create_order']) && $product) {
-        $tenure = (int) $_POST['tenure_months'];
-        if (!in_array($tenure, [12, 24, 36], true)) {
+        $isOnetime = ($product['pricing_type'] ?? 'tenure') === 'onetime';
+        $tenure = $isOnetime ? 0 : (int) ($_POST['tenure_months'] ?? 0);
+        if (!$isOnetime && !in_array($tenure, [12, 24, 36], true)) {
             $errors[] = 'Invalid tenure selected.';
         } else {
+            $couponCode = trim($_POST['coupon_code'] ?? '');
             // Server-side pricing is authoritative — never trust a client-submitted amount.
-            $pricing = calculate_price((float) $product['base_price_12mo'], $tenure);
+            $pricing = calculate_order_price($pdo, $product, $tenure, $couponCode !== '' ? $couponCode : null);
             $stmt = $pdo->prepare(
-                'INSERT INTO orders (user_id, product_id, tenure_months, base_amount, discount_amount, final_amount, status)
-                 VALUES (?, ?, ?, ?, ?, ?, "awaiting_payment")'
+                'INSERT INTO orders (user_id, product_id, tenure_months, base_amount, discount_amount, gst_amount, gst_waived, coupon_code, final_amount, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "awaiting_payment")'
             );
             $stmt->execute([
-                $userId, $product['id'], $tenure,
-                $pricing['base_amount'], $pricing['discount_amount'], $pricing['final_amount'],
+                $userId, $product['id'], $pricing['tenure_months'],
+                $pricing['base_amount'], $pricing['discount_amount'],
+                $pricing['gst_amount'], $pricing['gst_waived'], $pricing['coupon_code'],
+                $pricing['final_amount'],
             ]);
             $orderId = (int) $pdo->lastInsertId();
             header('Location: ' . APP_URL . '/checkout?order_id=' . $orderId);
@@ -90,7 +94,8 @@ $settings = array_column($settingsStmt->fetchAll(), 'setting_value', 'setting_ke
 <h1><?= e(APP_BRAND_NAME) ?> Checkout</h1>
 <?php foreach ($errors as $err): ?><div class="alert alert-error"><?= e($err) ?></div><?php endforeach; ?>
 
-<?php if ($product): ?>
+<?php $isOnetime = $product && ($product['pricing_type'] ?? 'tenure') === 'onetime'; ?>
+<?php if ($product && !$isOnetime): ?>
     <h2><?= e($product['name']) ?></h2>
     <form method="post" id="pricing-form">
         <?= csrf_field() ?>
@@ -103,16 +108,45 @@ $settings = array_column($settingsStmt->fetchAll(), 'setting_value', 'setting_ke
         <div class="price-summary">
             <p>Base: ₹<span id="base-amount">0.00</span></p>
             <p>Discount: -₹<span id="discount-amount">0.00</span></p>
-            <p><strong>Total: ₹<span id="final-amount">0.00</span></strong></p>
+            <p><strong>Subtotal: ₹<span id="final-amount">0.00</span></strong></p>
+            <p class="muted">18% GST is added at the next step (waived automatically if you enter a valid coupon code).</p>
         </div>
+        <label>Coupon code (optional)
+            <input type="text" name="coupon_code" placeholder="e.g. NOGST18">
+        </label>
         <button type="submit" class="btn btn-primary">Continue to payment</button>
     </form>
 
     <script src="/assets/js/pricing.js"></script>
 
+<?php elseif ($product && $isOnetime): ?>
+    <h2><?= e($product['name']) ?></h2>
+    <p class="muted"><?= e($product['description']) ?></p>
+    <form method="post">
+        <?= csrf_field() ?>
+        <input type="hidden" name="create_order" value="1">
+        <div class="price-summary">
+            <p><strong>Price: ₹<?= number_format((float) $product['base_price_12mo'], 2) ?></strong></p>
+            <p class="muted">18% GST is added at the next step (waived automatically if you enter a valid coupon code).</p>
+        </div>
+        <label>Coupon code (optional)
+            <input type="text" name="coupon_code" placeholder="e.g. NOGST18">
+        </label>
+        <button type="submit" class="btn btn-primary">Continue to payment</button>
+    </form>
+
 <?php elseif ($order): ?>
-    <h2>Pay for <?= e($order['product_name']) ?> (<?= (int) $order['tenure_months'] ?> months)</h2>
-    <p>Amount due: <strong>₹<?= number_format((float) $order['final_amount'], 2) ?></strong></p>
+    <h2>Pay for <?= e($order['product_name']) ?><?= (int) $order['tenure_months'] > 0 ? ' (' . (int) $order['tenure_months'] . ' months)' : '' ?></h2>
+    <div class="price-summary">
+        <p>Base: ₹<?= number_format((float) $order['base_amount'], 2) ?></p>
+        <?php if ((float) $order['discount_amount'] > 0): ?><p>Discount: -₹<?= number_format((float) $order['discount_amount'], 2) ?></p><?php endif; ?>
+        <?php if (!empty($order['gst_waived'])): ?>
+            <p>GST: <span class="badge badge-approved">Waived<?= $order['coupon_code'] ? ' (coupon ' . e($order['coupon_code']) . ')' : '' ?></span></p>
+        <?php else: ?>
+            <p>GST (18%): ₹<?= number_format((float) $order['gst_amount'], 2) ?></p>
+        <?php endif; ?>
+        <p><strong>Amount due: ₹<?= number_format((float) $order['final_amount'], 2) ?></strong></p>
+    </div>
 
     <?php if ($order['status'] === 'awaiting_payment'): ?>
         <div class="payment-box">
