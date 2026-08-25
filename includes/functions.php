@@ -123,6 +123,85 @@ function calculate_price(float $basePrice12mo, int $tenureMonths): array
     ];
 }
 
+const DEFAULT_GST_PERCENT = 18.0;
+
+function gst_percent(PDO $pdo): float
+{
+    $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'gst_percent'");
+    $stmt->execute();
+    $val = $stmt->fetchColumn();
+    return $val !== false && $val !== null && $val !== '' ? (float) $val : DEFAULT_GST_PERCENT;
+}
+
+/**
+ * Looks up an active coupon by code (case-insensitive). Returns null if not
+ * found / inactive. Only "GST waiver" coupons exist for now (waives_gst=1),
+ * managed from /admin/pricing.
+ */
+function find_active_coupon(PDO $pdo, string $code): ?array
+{
+    $code = trim($code);
+    if ($code === '') {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT * FROM coupons WHERE UPPER(code) = UPPER(?) AND is_active = 1');
+    $stmt->execute([$code]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+/**
+ * Full order pricing: handles both tenure-based products (12/24/36mo, flat
+ * discount, existing rule) and one-time products (single price, no tenure
+ * multiplier — used for email plans / custom website builds). GST (18% by
+ * default, configurable in settings) is applied on top unless the product
+ * is marked gst_applicable=0, or a valid GST-waiver coupon is supplied.
+ */
+function calculate_order_price(PDO $pdo, array $product, int $tenureMonths, ?string $couponCode = null): array
+{
+    $pricingType = $product['pricing_type'] ?? 'tenure';
+    $gstApplicable = !isset($product['gst_applicable']) || (int) $product['gst_applicable'] === 1;
+    $price = (float) $product['base_price_12mo'];
+
+    if ($pricingType === 'onetime') {
+        $base = round($price, 2);
+        $discount = 0.0;
+        $tenureUsed = 0;
+    } else {
+        $pricing = calculate_price($price, $tenureMonths);
+        $base = $pricing['base_amount'];
+        $discount = $pricing['discount_amount'];
+        $tenureUsed = $tenureMonths;
+    }
+
+    $subtotal = max(0, $base - $discount);
+
+    $coupon = null;
+    $gstWaived = false;
+    if ($couponCode) {
+        $coupon = find_active_coupon($pdo, $couponCode);
+        if ($coupon && (int) ($coupon['waives_gst'] ?? 0) === 1) {
+            $gstWaived = true;
+        }
+    }
+
+    $gstRate = gst_percent($pdo);
+    $gst = ($gstApplicable && !$gstWaived) ? round($subtotal * $gstRate / 100, 2) : 0.0;
+    $final = round($subtotal + $gst, 2);
+
+    return [
+        'base_amount' => $base,
+        'discount_amount' => $discount,
+        'subtotal_amount' => $subtotal,
+        'gst_percent' => $gstRate,
+        'gst_amount' => $gst,
+        'gst_waived' => $gstWaived ? 1 : 0,
+        'coupon_code' => $coupon ? $coupon['code'] : null,
+        'final_amount' => $final,
+        'tenure_months' => $tenureUsed,
+    ];
+}
+
 function e(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
