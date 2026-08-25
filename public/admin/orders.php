@@ -20,7 +20,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($order && $order['status'] === 'pending_utr_verification') {
         if ($action === 'approve') {
             $now = date('Y-m-d H:i:s');
-            $expiresAt = date('Y-m-d H:i:s', strtotime('+' . (int) $order['tenure_months'] . ' months', strtotime($now)));
+            // A one-time product (tenure_months = 0, e.g. a custom website build or an
+            // email plan) has no renewal cycle, so it never "expires".
+            $expiresAt = (int) $order['tenure_months'] > 0
+                ? date('Y-m-d H:i:s', strtotime('+' . (int) $order['tenure_months'] . ' months', strtotime($now)))
+                : null;
             $pdo->prepare('UPDATE orders SET status = "approved", approved_at = ?, approved_by = ?, expires_at = ? WHERE id = ?')
                 ->execute([$now, current_admin_id(), $expiresAt, $orderId]);
 
@@ -42,7 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            flash('notice', "Order #$orderId approved (service valid until " . date('d M Y', strtotime($expiresAt)) . "). API key has been issued.");
+            $validityMsg = $expiresAt ? ('service valid until ' . date('d M Y', strtotime($expiresAt))) : 'one-time service, no renewal cycle';
+            flash('notice', "Order #$orderId approved ($validityMsg). API key has been issued.");
         } elseif ($action === 'reject') {
             $pdo->prepare('UPDATE orders SET status = "rejected" WHERE id = ?')->execute([$orderId]);
             flash('notice', "Order #$orderId rejected.");
@@ -79,8 +84,8 @@ $orders = $pdo->query(
     <td><?= (int) $o['id'] ?></td>
     <td><?= e($o['client_name']) ?><br><small><?= e($o['client_email']) ?></small></td>
     <td><?= e($o['product_name']) ?></td>
-    <td><?= (int) $o['tenure_months'] ?> mo</td>
-    <td>₹<?= number_format((float) $o['final_amount'], 2) ?></td>
+    <td><?= (int) $o['tenure_months'] > 0 ? (int) $o['tenure_months'] . ' mo' : 'one-time' ?></td>
+    <td>₹<?= number_format((float) $o['final_amount'], 2) ?><?= !empty($o['gst_waived']) ? ' <span class="badge badge-approved" style="font-size:10px">GST waived</span>' : '' ?></td>
     <td><?= e($o['utr_number'] ?? '-') ?></td>
     <td><span class="badge badge-<?= e($o['status']) ?>"><?= e(str_replace('_', ' ', $o['status'])) ?></span></td>
     <td>
