@@ -90,7 +90,11 @@ $renewals = $renewalsStmt->fetchAll();
                     <p class="muted"><?= e($p['category']) ?></p>
                     <p><?= e($p['description']) ?></p>
                     <a class="btn btn-primary" href="/checkout?product_id=<?= (int) $p['id'] ?>">
-                        Order from ₹<?= number_format((float) $p['base_price_12mo'], 2) ?>/yr
+                        <?php if (($p['pricing_type'] ?? 'tenure') === 'onetime'): ?>
+                            Order for ₹<?= number_format((float) $p['base_price_12mo'], 2) ?>
+                        <?php else: ?>
+                            Order from ₹<?= number_format((float) $p['base_price_12mo'], 2) ?>/yr
+                        <?php endif; ?>
                     </a>
                 </div>
             <?php endforeach; ?>
@@ -105,8 +109,8 @@ $renewals = $renewalsStmt->fetchAll();
             <?php foreach ($orders as $o): ?>
                 <tr>
                     <td><?= e($o['product_name']) ?></td>
-                    <td><?= (int) $o['tenure_months'] ?> mo</td>
-                    <td>₹<?= number_format((float) $o['final_amount'], 2) ?></td>
+                    <td><?= (int) $o['tenure_months'] > 0 ? (int) $o['tenure_months'] . ' mo' : 'one-time' ?></td>
+                    <td>₹<?= number_format((float) $o['final_amount'], 2) ?><?= !empty($o['gst_waived']) ? ' <span class="muted" style="font-size:11px">(GST waived)</span>' : (((float) $o['gst_amount'] > 0) ? ' <span class="muted" style="font-size:11px">(incl. GST)</span>' : '') ?></td>
                     <td><span class="badge badge-<?= e($o['status']) ?>"><?= e(str_replace('_', ' ', $o['status'])) ?></span></td>
                     <td>
                         <?php if (!empty($o['expires_at'])): ?>
