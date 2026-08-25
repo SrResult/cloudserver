@@ -2,6 +2,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../includes/token_issuer.php';
+require_once __DIR__ . '/../../includes/mailer.php';
 
 require_admin();
 $pdo = get_pdo();
@@ -21,7 +23,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $expiresAt = date('Y-m-d H:i:s', strtotime('+' . (int) $order['tenure_months'] . ' months', strtotime($now)));
             $pdo->prepare('UPDATE orders SET status = "approved", approved_at = ?, approved_by = ?, expires_at = ? WHERE id = ?')
                 ->execute([$now, current_admin_id(), $expiresAt, $orderId]);
-            flash('notice', "Order #$orderId approved (service valid until " . date('d M Y', strtotime($expiresAt)) . "). API key will be issued in " . TOKEN_DELAY_MINUTES . " minutes (via cron or on the client's next dashboard visit).");
+
+            // Issue the API key immediately — this app has no real system cron
+            // running on the host, so waiting on cron/generate_tokens.php would
+            // mean the key never appears unless the client happens to revisit
+            // the dashboard after the delay window. Issue it right away instead.
+            $rawToken = issue_api_token_for_order($pdo, (int) $order['id'], (int) $order['user_id']);
+            if ($rawToken !== null) {
+                $userStmt = $pdo->prepare('SELECT name, email FROM users WHERE id = ?');
+                $userStmt->execute([(int) $order['user_id']]);
+                $client = $userStmt->fetch();
+                if ($client) {
+                    $body = "<p>Hi " . e($client['name']) . ",</p>"
+                        . "<p>Your payment has been verified and your API key is ready. It's also visible in your dashboard.</p>"
+                        . "<p><strong>Keep this safe — it will only be shown once.</strong></p>"
+                        . "<code>{$rawToken}</code>";
+                    send_mail($client['email'], $client['name'], APP_BRAND_NAME . ' — Your API key is ready', $body);
+                }
+            }
+
+            flash('notice', "Order #$orderId approved (service valid until " . date('d M Y', strtotime($expiresAt)) . "). API key has been issued.");
         } elseif ($action === 'reject') {
             $pdo->prepare('UPDATE orders SET status = "rejected" WHERE id = ?')->execute([$orderId]);
             flash('notice', "Order #$orderId rejected.");
