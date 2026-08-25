@@ -185,17 +185,24 @@ $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name` CHARACTER SET utf8mb4 COLLATE 
 $pdo->exec("USE `$name`");
 
 /**
- * Strips whole-line SQL "--" comments before splitting a script on ';' —
- * without this, a comment-only chunk between two statements can survive the
- * split as a non-empty (but content-free) "statement" and blow up with a
- * 1064 syntax error when exec()'d.
+ * Strips SQL "--" comments (both whole-line and trailing-on-a-statement-line)
+ * before splitting a script on ';'. This matters for two reasons: a
+ * comment-only line can survive the split as a non-empty (but content-free)
+ * "statement" and 1064 when exec()'d, and — more subtly — a semicolon
+ * mentioned inside a trailing comment (e.g. "-- do X; then Y") would
+ * otherwise be mistaken by the naive ';'-split for a real statement
+ * terminator, chopping a CREATE TABLE in half.
  */
 function strip_sql_comment_lines(string $sql): string
 {
     $lines = explode("\n", $sql);
-    $kept = array_filter($lines, function ($line) {
-        return trim($line) !== '' && strpos(ltrim($line), '--') !== 0;
-    });
+    $cleaned = array_map(function ($line) {
+        // Cut everything from "--" onward (a plain string search is fine here —
+        // this schema file never puts "--" inside a quoted value).
+        $pos = strpos($line, '--');
+        return $pos !== false ? substr($line, 0, $pos) : $line;
+    }, $lines);
+    $kept = array_filter($cleaned, fn($line) => trim($line) !== '');
     return implode("\n", $kept);
 }
 
