@@ -16,18 +16,20 @@ $categoryMeta = [
     'vps'     => ['label' => 'VPS Hosting', 'icon' => '⚡'],
     'domain'  => ['label' => 'Domains', 'icon' => '🌐'],
     'ssl'     => ['label' => 'SSL Certificates', 'icon' => '🔒'],
+    'email'   => ['label' => 'Business Email', 'icon' => '📧'],
+    'website' => ['label' => 'Website Development', 'icon' => '💻'],
 ];
 
 $byCategory = [];
 foreach ($products as $p) {
     $byCategory[$p['category']][] = $p;
 }
-// Keep only categories that actually have active products, in a stable order.
-$activeCategories = array_values(array_filter(array_keys($categoryMeta), fn($c) => !empty($byCategory[$c])));
-if (!$activeCategories && $products) {
-    // Fallback: any category present in data but not in our known list.
-    $activeCategories = array_keys($byCategory);
-}
+// Keep every category that actually has active products, known ones first
+// (in the order declared above), then any admin-added category we don't
+// have metadata for yet.
+$knownWithProducts = array_values(array_filter(array_keys($categoryMeta), fn($c) => !empty($byCategory[$c])));
+$unknownWithProducts = array_values(array_diff(array_keys($byCategory), array_keys($categoryMeta)));
+$activeCategories = array_merge($knownWithProducts, $unknownWithProducts);
 $firstCategory = $activeCategories[0] ?? null;
 ?>
 <!doctype html>
@@ -104,7 +106,8 @@ $firstCategory = $activeCategories[0] ?? null;
                     <?php foreach ($byCategory[$cat] as $i => $p): ?>
                         <div class="plan-card<?= $i === 1 ? ' featured' : '' ?>"
                              data-base="<?= (float) $p['base_price_12mo'] ?>"
-                             data-id="<?= (int) $p['id'] ?>">
+                             data-id="<?= (int) $p['id'] ?>"
+                             data-pricing-type="<?= e($p['pricing_type'] ?? 'tenure') ?>">
                             <?php if ($i === 1): ?><span class="plan-badge">Popular</span><?php endif; ?>
                             <h3><?= e($p['name']) ?></h3>
                             <?php
@@ -120,7 +123,7 @@ $firstCategory = $activeCategories[0] ?? null;
                                 <p class="plan-desc">Full details available after login.</p>
                             <?php endif; ?>
                             <div class="plan-strike price-strike"></div>
-                            <div class="plan-price"><span class="price-currency">₹</span><span class="price-amount"></span><span> /mo</span></div>
+                            <div class="plan-price"><span class="price-currency">₹</span><span class="price-amount"></span><span class="price-suffix"> /mo</span></div>
                             <a class="plan-cta" href="/checkout?product_id=<?= (int) $p['id'] ?>">Choose plan</a>
                             <p class="plan-fine price-fine"></p>
                         </div>
@@ -188,14 +191,27 @@ $firstCategory = $activeCategories[0] ?? null;
 
         document.querySelectorAll('.plan-card').forEach(function (card) {
             var base = parseFloat(card.getAttribute('data-base')) || 0;
+            var amountEl = card.querySelector('.price-amount');
+            var strikeEl = card.querySelector('.price-strike');
+            var fineEl = card.querySelector('.price-fine');
+            var suffixEl = card.querySelector('.price-suffix');
+
+            if (card.getAttribute('data-pricing-type') === 'onetime') {
+                // One-time products (email plans, custom website builds) — flat
+                // price, no monthly breakdown, no tenure discount.
+                amountEl.textContent = base.toFixed(0);
+                suffixEl.textContent = ' one-time';
+                strikeEl.textContent = '';
+                strikeEl.style.visibility = 'hidden';
+                fineEl.textContent = '+18% GST (waived with a valid coupon code at checkout).';
+                return;
+            }
+
+            suffixEl.textContent = ' /mo';
             var totalBase = base * (tenure / 12);
             var totalFinal = Math.max(0, totalBase - discount);
             var perMonth = totalFinal / months;
             var perMonthBase = totalBase / months;
-
-            var amountEl = card.querySelector('.price-amount');
-            var strikeEl = card.querySelector('.price-strike');
-            var fineEl = card.querySelector('.price-fine');
 
             amountEl.textContent = perMonth.toFixed(0);
             if (discount > 0) {
@@ -206,7 +222,7 @@ $firstCategory = $activeCategories[0] ?? null;
                 strikeEl.style.visibility = 'hidden';
             }
             fineEl.textContent = 'Billed ₹' + totalFinal.toFixed(0) + ' for ' + months + ' months' +
-                (discount > 0 ? ' (₹' + discount.toFixed(0) + ' off)' : '') + '.';
+                (discount > 0 ? ' (₹' + discount.toFixed(0) + ' off)' : '') + ' + 18% GST.';
         });
     }
 
